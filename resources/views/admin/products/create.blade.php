@@ -14,15 +14,24 @@
             <label class="block text-gray-700 font-bold mb-2">Description</label>
             <textarea name="description" rows="4" class="w-full border p-2 rounded focus:outline-none focus:border-blue-500"></textarea>
         </div>
-        <div class="mb-4">
-            <label class="block text-gray-700 font-bold mb-2">Category</label>
-            <select name="category_id" class="w-full border p-2 rounded focus:outline-none focus:border-blue-500">
-                <option value="">-- Select Category --</option>
-                @foreach($categories as $category)
-                    <option value="{{ $category->id }}">{{ $category->name }}</option>
-                @endforeach
-            </select>
+        <div class="flex gap-4 mb-4">
+            <div class="w-1/2">
+                <label class="block text-gray-700 font-bold mb-2">Main Category</label>
+                <select id="main_category" class="w-full border p-2 rounded focus:outline-none focus:border-blue-500">
+                    <option value="">-- Select Category --</option>
+                    @foreach($categories as $category)
+                        <option value="{{ $category->id }}">{{ $category->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="w-1/2" id="sub_category_wrapper" style="display: none;">
+                <label class="block text-gray-700 font-bold mb-2">Sub Category</label>
+                <select id="sub_category" class="w-full border p-2 rounded focus:outline-none focus:border-blue-500">
+                    <option value="">-- Select Sub Category --</option>
+                </select>
+            </div>
         </div>
+        <input type="hidden" name="category_id" id="final_category_id" value="">
         <div class="flex gap-4 mb-4">
             <div class="w-1/2">
                 <label class="block text-gray-700 font-bold mb-2">Unit (e.g. kg, pcs)</label>
@@ -55,4 +64,45 @@
         <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Save Product</button>
     </form>
 </div>
+
+<script>
+    const categoriesData = @json($categories);
+    const mainCategorySelect = document.getElementById('main_category');
+    const subCategorySelect = document.getElementById('sub_category');
+    const subCategoryWrapper = document.getElementById('sub_category_wrapper');
+    const finalCategoryId = document.getElementById('final_category_id');
+
+    function updateFinalCategoryId() {
+        if (subCategorySelect.value) {
+            finalCategoryId.value = subCategorySelect.value;
+        } else {
+            finalCategoryId.value = mainCategorySelect.value;
+        }
+    }
+
+    mainCategorySelect.addEventListener('change', function() {
+        const selectedId = this.value;
+        subCategorySelect.innerHTML = '<option value="">-- Select Sub Category --</option>';
+        
+        if (selectedId) {
+            const category = categoriesData.find(c => c.id == selectedId);
+            if (category && category.children && category.children.length > 0) {
+                category.children.forEach(child => {
+                    const option = document.createElement('option');
+                    option.value = child.id;
+                    option.textContent = child.name;
+                    subCategorySelect.appendChild(option);
+                });
+                subCategoryWrapper.style.display = 'block';
+            } else {
+                subCategoryWrapper.style.display = 'none';
+            }
+        } else {
+            subCategoryWrapper.style.display = 'none';
+        }
+        updateFinalCategoryId();
+    });
+
+    subCategorySelect.addEventListener('change', updateFinalCategoryId);
+</script>
 @endsection

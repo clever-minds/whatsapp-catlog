@@ -23,3 +23,8 @@ Route::get('/webhooks/whatsapp', [\App\Http\Controllers\Api\WhatsAppWebhookContr
 Route::post('/webhooks/whatsapp', [\App\Http\Controllers\Api\WhatsAppWebhookController::class, 'handle']);
 
 Route::post('/webhooks/stripe', [WebhookController::class, 'handleStripe']);
+
+Route::post('/whatsapp-flow-endpoint', [\App\Http\Controllers\Api\WhatsAppFlowController::class, 'handleEndpoint']);
+
+Route::get('/store-selector/search', [\App\Http\Controllers\StoreSelectorController::class, 'search']);
+Route::post('/store-selector/save', [\App\Http\Controllers\StoreSelectorController::class, 'save']);

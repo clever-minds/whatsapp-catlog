@@ -1,0 +1,216 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\Product;
+
+class WhatsAppWebhookController extends Controller
+{
+    /**
+     * Verify the webhook with Meta
+     */
+    public function verify(Request $request)
+    {
+        $mode = $request->query('hub_mode');
+        $token = $request->query('hub_verify_token');
+        $challenge = $request->query('hub_challenge');
+
+        $verifyToken = env('WHATSAPP_VERIFY_TOKEN');
+
+        if ($mode && $token) {
+            if ($mode === 'subscribe' && $token === $verifyToken) {
+                Log::info('WhatsApp Webhook Verified!');
+                return response($challenge, 200);
+            } else {
+                return response('Forbidden', 403);
+            }
+        }
+        return response('Bad Request', 400);
+    }
+
+    /**
+     * Handle incoming WhatsApp messages
+     */
+    public function handle(Request $request)
+    {
+        Log::info('Incoming WhatsApp Webhook:', $request->all());
+
+        try {
+            $entry = $request->input('entry.0');
+            $changes = data_get($entry, 'changes.0');
+            $value = data_get($changes, 'value');
+            $messages = data_get($value, 'messages.0');
+
+            if ($messages) {
+                $contact = data_get($value, 'contacts.0');
+                $customerPhone = data_get($contact, 'wa_id');
+                $customerName = data_get($contact, 'profile.name');
+
+                if ($customerPhone && $customerName) {
+                    Cache::put('whatsapp_name_' . $customerPhone, $customerName, now()->addDays(30));
+                }
+            }
+
+            if ($messages && data_get($messages, 'type') === 'order') {
+                $contact = data_get($value, 'contacts.0');
+                $customerName = data_get($contact, 'profile.name', 'Unknown');
+                $customerPhone = data_get($contact, 'wa_id');
+                
+                $orderData = data_get($messages, 'order');
+                $productItems = data_get($orderData, 'product_items', []);
+
+                if ($customerPhone && !empty($productItems)) {
+                    DB::transaction(function () use ($customerName, $customerPhone, $productItems) {
+                        $storeId = Cache::get('whatsapp_store_id_' . $customerPhone);
+                        
+                        // No fallback to last order. User must re-select store if session expired.
+                        
+                        $order = Order::create([
+                            'customer_name' => $customerName,
+                            'customer_phone' => $customerPhone,
+                            'store_id' => $storeId,
+                            'status' => 'pending_approval',
+                            'total_amount' => 0, // Will calculate below
+                        ]);
+
+                        if ($storeId) {
+                            $store = \App\Models\Store::find($storeId);
+                            if ($store && $store->last_number !== $customerPhone) {
+                                $store->update(['last_number' => $customerPhone]);
+                            }
+                        }
+
+                        $totalAmount = 0;
+
+                        foreach ($productItems as $item) {
+                            $rawProductId = data_get($item, 'product_retailer_id');
+                            $productId = str_replace('PROD_', '', $rawProductId);
+                            
+                            $quantity = data_get($item, 'quantity', 1);
+                            $itemPrice = data_get($item, 'item_price');
+
+                            $product = Product::find($productId);
+                            $unitPrice = $product ? $product->price : $itemPrice;
+
+                            if ($productId) {
+                                OrderItem::create([
+                                    'order_id' => $order->id,
+                                    'product_id' => $productId,
+                                    'quantity' => $quantity,
+                                    'unit_price' => $unitPrice,
+                                ]);
+
+                                $totalAmount += ($quantity * $unitPrice);
+                            }
+                        }
+
+                        $taxPercent = \App\Models\Setting::where('key', 'tax_percent')->value('value');
+                        $taxName = \App\Models\Setting::where('key', 'tax_name')->value('value');
+                        $taxAmount = 0;
+
+                        if ($taxPercent > 0) {
+                            $taxAmount = ($totalAmount * $taxPercent) / 100;
+                        }
+
+                        $order->update([
+                            'total_amount' => $totalAmount + $taxAmount,
+                            'tax_name' => $taxName,
+                            'tax_type' => 'percent',
+                            'tax_amount' => $taxPercent
+                        ]);
+                        Log::info('Order created successfully from WhatsApp.', ['order_id' => $order->id]);
+
+                        $whatsAppService = new \App\Services\WhatsAppService();
+                        
+                        if (!$storeId) {
+                            // Order placed via direct link without selecting a store
+                            $stores = \App\Models\Store::all();
+                            $whatsAppService->sendStoreWebViewMessage($customerPhone, "Thank you for your order! To complete it, please click below to select the nearest store for delivery:");
+                        } else {
+                            // Normal flow
+                            $autoReplyMsg = "Your order #{$order->order_number} has been sent successfully. We will shortly *send you the updated price with a payment link to complete your order*.";
+                            $whatsAppService->sendTextMessage($customerPhone, $autoReplyMsg);
+                            // Cache::forget('whatsapp_store_id_' . $customerPhone); // Keep store ID for future orders
+                        }
+                        
+                        Cache::forget('whatsapp_step_' . $customerPhone);
+                    });
+                }
+            } elseif ($messages && data_get($messages, 'type') === 'text') {
+                $contact = data_get($value, 'contacts.0');
+                $customerPhone = data_get($contact, 'wa_id');
+                $textBody = data_get($messages, 'text.body');
+                
+                if ($customerPhone && $textBody) {
+                    $whatsAppService = new \App\Services\WhatsAppService();
+
+                    $searchTerm = strtolower(trim($textBody));
+                    $greetings = ['hi', 'hello', 'hey', 'start', 'menu', 'help'];
+                    
+                    if (in_array($searchTerm, $greetings)) {
+                        $whatsAppService->sendStoreWebViewMessage($customerPhone);
+                    } else {
+                        // User typed a random text, just guide them to use 'hi'
+                        $whatsAppService->sendTextMessage($customerPhone, "Please say 'hi' to start your order and search for a store.");
+                    }
+                }
+            } elseif ($messages && data_get($messages, 'type') === 'interactive') {
+                $contact = data_get($value, 'contacts.0');
+                $customerPhone = data_get($contact, 'wa_id');
+                
+                $interactiveType = data_get($messages, 'interactive.type');
+                
+                if ($interactiveType === 'list_reply' || $interactiveType === 'nfm_reply') {
+                    
+                    if ($interactiveType === 'list_reply') {
+                        $listReplyId = data_get($messages, 'interactive.list_reply.id');
+                        
+                        $storeId = str_replace('store_', '', $listReplyId);
+                    } else {
+                        // For nfm_reply (Flow reply)
+                        $responseJson = data_get($messages, 'interactive.nfm_reply.response_json');
+                        $responseData = json_decode($responseJson, true);
+                        $storeId = data_get($responseData, 'selected_store_id');
+                    }
+                    
+                    if ($storeId) {
+                        $store = \App\Models\Store::find($storeId);
+                        
+                        if ($store) {
+                            Cache::put('whatsapp_store_id_' . $customerPhone, $storeId, now()->addMinutes(30));
+                            $whatsAppService = new \App\Services\WhatsAppService();
+
+                            $pendingOrder = Order::where('customer_phone', $customerPhone)
+                                ->whereNull('store_id')
+                                ->latest()
+                                ->first();
+
+                            if ($pendingOrder) {
+                                $pendingOrder->update(['store_id' => $store->id]);
+                                $whatsAppService->sendTextMessage($customerPhone, "Thank you! Your order #{$pendingOrder->order_number} is now assigned. We will shortly *send you the updated price with a payment link to complete your order*.");
+                            } else {
+                                $cartSession = \App\Models\CartSession::create([
+                                    'customer_phone' => $customerPhone,
+                                    'store_id' => $store->id,
+                                ]);
+                                $shopUrl = route('shop.index', $cartSession->uuid);
+                                $whatsAppService->sendTextMessage($customerPhone, "You selected {$store->name}!\n\nPlease click the link below to select your products and place your order:\n{$shopUrl}\n\n*Note: Prices shown are estimates. We will send you the updated price with a payment link after you place your order.*");
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Error processing WhatsApp Webhook: ' . $e->getMessage());
+        }
+
+        return response('EVENT_RECEIVED', 200);
+    }
+}

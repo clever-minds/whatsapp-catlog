@@ -8,10 +8,22 @@ use App\Models\Unit;
 
 class UnitController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $units = Unit::latest()->paginate(10);
-        return view('admin.units.index', compact('units'));
+        if ($request->ajax()) {
+            return \Yajra\DataTables\Facades\DataTables::of(Unit::query())
+                ->addColumn('action', function ($row) {
+                    $editUrl = route('units.edit', $row->id);
+                    $deleteUrl = route('units.destroy', $row->id);
+                    return '
+                        <a href="'.$editUrl.'" class="text-indigo-600 hover:text-indigo-900 mr-3">Edit</a>
+                        <button type="button" onclick="openDeleteModal(\''.$deleteUrl.'\')" class="text-red-600 hover:text-red-900">Delete</button>
+                    ';
+                })
+                ->rawColumns(['action'])
+                ->make(true);
+        }
+        return view('admin.units.index');
     }
 
     public function create()

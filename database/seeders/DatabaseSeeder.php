@@ -12,12 +12,19 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // \App\Models\User::factory(10)->create();
+        // Create Admin user if not exists
+        if (\App\Models\User::where('email', 'admin@admin.com')->count() === 0) {
+            \App\Models\User::factory()->create([
+                'name' => 'Admin',
+                'email' => 'admin@admin.com',
+                'password' => bcrypt('password'),
+            ]);
+        }
 
-        \App\Models\User::factory()->create([
-            'name' => 'Admin',
-            'email' => 'admin@admin.com',
-            'password' => bcrypt('password'),
+        // Run other seeders
+        $this->call([
+            PizzaRawMaterialSeeder::class,
+            OrderSeeder::class,
         ]);
     }
 }

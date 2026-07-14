@@ -1,0 +1,115 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "STORE_SEARCH": [
+      "STORE_SELECTION"
+    ],
+    "STORE_SELECTION": []
+  },
+  "screens": [
+    {
+      "id": "STORE_SEARCH",
+      "title": "Search Store",
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "search_form",
+            "children": [
+              {
+                "type": "TextHeading",
+                "text": "Find Your Store"
+              },
+              {
+                "type": "TextBody",
+                "text": "Enter the name of the store to search."
+              },
+              {
+                "type": "TextInput",
+                "name": "store_name",
+                "label": "Store Name",
+                "required": true
+              },
+              {
+                "type": "Footer",
+                "label": "Search",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "store_name": "${form.store_name}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "STORE_SELECTION",
+      "title": "Select Store",
+      "terminal": true,
+      "data": {
+        "stores_list": {
+          "type": "array",
+          "__is_dynamic__": true,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "store_1",
+              "title": "Example Store 1"
+            },
+            {
+              "id": "store_2",
+              "title": "Example Store 2"
+            }
+          ]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "select_form",
+            "children": [
+              {
+                "type": "TextHeading",
+                "text": "Search Results"
+              },
+              {
+                "type": "Dropdown",
+                "label": "Choose Store",
+                "name": "selected_store_id",
+                "required": true,
+                "data-source": "${data.stores_list}"
+              },
+              {
+                "type": "Footer",
+                "label": "Confirm",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "selected_store_id": "${form.selected_store_id}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

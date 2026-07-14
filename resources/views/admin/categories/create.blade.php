@@ -11,6 +11,16 @@
             <input type="text" name="name" class="w-full border p-2 rounded focus:outline-none focus:border-blue-500" required>
         </div>
         <div class="mb-4">
+            <label class="block text-gray-700 font-bold mb-2">Parent Category (Optional)</label>
+            <select name="parent_id" class="w-full border p-2 rounded focus:outline-none focus:border-blue-500">
+                <option value="">-- None --</option>
+                @foreach($parentCategories as $parent)
+                    <option value="{{ $parent->id }}">{{ $parent->name }}</option>
+                @endforeach
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Select a parent category to make this a subcategory.</p>
+        </div>
+        <div class="mb-4">
             <label class="inline-flex items-center">
                 <input type="checkbox" name="is_active" value="1" class="form-checkbox h-5 w-5 text-blue-600" checked>
                 <span class="ml-2 text-gray-700">Active</span>
